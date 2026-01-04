@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ajedrez 3D con IA</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <div id="game-container">
+      <div id="info-panel">
+        <h1>Ajedrez 3D</h1>
+        <div id="game-status">Turno: Blancas</div>
+        <div id="controls">
+          <button id="new-game">Nueva Partida</button>
+          <select id="difficulty">
+            <option value="2">Fácil</option>
+            <option value="4" selected>Medio</option>
+            <option value="6">Difícil</option>
+            <option value="8">Experto</option>
+          </select>
+          <button id="undo">Deshacer</button>
+        </div>
+        <div id="captured-pieces">
+          <div id="white-captured">
+            <strong>Capturadas (Blancas):</strong><br />
+            <span style="color: #999">Ninguna</span>
+          </div>
+          <div id="black-captured">
+            <strong>Capturadas (Negras):</strong><br />
+            <span style="color: #999">Ninguna</span>
+          </div>
+        </div>
+        <div id="move-history">
+          <strong>Historial de Movimientos:</strong><br />
+          <div style="color: #999; padding: 5px">Sin movimientos aún</div>
+        </div>
+      </div>
+      <canvas id="chess-canvas" width="800" height="600"></canvas>
+    </div>
+
+    <!-- Scripts en orden de dependencias -->
+    <script src="js/utils/constants.js"></script>
+    <script src="js/utils/helpers.js"></script>
+    <script src="js/game/Piece.js"></script>
+    <script src="js/game/Move.js"></script>
+    <script src="js/game/rules.js"></script>
+    <script src="js/game/Board.js"></script>
+    <script src="js/game/GameState.js"></script>
+    <script src="js/ai/evaluation.js"></script>
+    <script src="js/ai/MinimaxAI.js"></script>
+    <script src="js/webgl/shaders.js"></script>
+    <script src="js/webgl/geometries.js"></script>
+    <script src="js/webgl/camera.js"></script>
+    <script src="js/webgl/renderer.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
