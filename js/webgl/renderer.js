@@ -2,7 +2,12 @@ class ChessRenderer {
   constructor(canvas, gameState) {
     this.canvas = canvas;
     this.gameState = gameState;
-    this.gl = canvas.getContext("webgl");
+    this.gl = canvas.getContext("webgl", {
+      antialias: true,
+      alpha: false,
+      depth: true,
+      powerPreference: "high-performance"
+    });
 
     if (!this.gl) {
       alert("WebGL no está disponible en tu navegador");
@@ -39,26 +44,30 @@ class ChessRenderer {
     }
     console.log("✓ Programa de shaders creado");
 
-    // Obtener ubicaciones
+    // Obtener ubicaciones - ACTUALIZADO PARA PHONG
     this.locations = {
       attributes: {
-        position: gl.getAttribLocation(this.program, "aPosition"),
-        normal: gl.getAttribLocation(this.program, "aNormal"),
-        color: gl.getAttribLocation(this.program, "aColor"),
+        position: gl.getAttribLocation(this.program, "VertexPosition"),
+        normal: gl.getAttribLocation(this.program, "VertexNormal"),
       },
       uniforms: {
-        modelViewMatrix: gl.getUniformLocation(
-          this.program,
-          "uModelViewMatrix"
-        ),
-        projectionMatrix: gl.getUniformLocation(
-          this.program,
-          "uProjectionMatrix"
-        ),
-        normalMatrix: gl.getUniformLocation(this.program, "uNormalMatrix"),
-        lightPosition: gl.getUniformLocation(this.program, "uLightPosition"),
-        viewPosition: gl.getUniformLocation(this.program, "uViewPosition"),
-        highlightColor: gl.getUniformLocation(this.program, "uHighlightColor"),
+        modelViewMatrix: gl.getUniformLocation(this.program, "modelViewMatrix"),
+        projectionMatrix: gl.getUniformLocation(this.program, "projectionMatrix"),
+        normalMatrix: gl.getUniformLocation(this.program, "normalMatrix"),
+        // uHighlightColor no está en el shader del usuario, pero podemos añadirlo si queremos mantener funcionalidad
+        // Por ahora, el shader del usuario NO tiene highlightColor, así que esto fallará o se ignorará.
+
+        // Uniforms de Material
+        materialKa: gl.getUniformLocation(this.program, "Material.Ka"),
+        materialKd: gl.getUniformLocation(this.program, "Material.Kd"),
+        materialKs: gl.getUniformLocation(this.program, "Material.Ks"),
+        materialAlpha: gl.getUniformLocation(this.program, "Material.alpha"),
+
+        // Uniforms de Luz
+        lightPosition: gl.getUniformLocation(this.program, "Light.Position"),
+        lightLa: gl.getUniformLocation(this.program, "Light.La"),
+        lightLd: gl.getUniformLocation(this.program, "Light.Ld"),
+        lightLs: gl.getUniformLocation(this.program, "Light.Ls"),
       },
     };
 
@@ -70,7 +79,10 @@ class ChessRenderer {
     // Configuración WebGL
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
-    gl.clearColor(0.1, 0.1, 0.15, 1.0);
+    gl.clearColor(0.12, 0.12, 0.15, 1.0);
+
+    // Configurar luz UNA VEZ
+    this.setupLight();
 
     console.log("✓ WebGL configurado");
     console.log("=== INICIALIZACIÓN COMPLETA ===\n");
@@ -87,8 +99,8 @@ class ChessRenderer {
 
   createBoardGeometry() {
     const gl = this.gl;
-    const whiteSquare = [0.9, 0.9, 0.85];
-    const blackSquare = [0.4, 0.3, 0.25];
+    const whiteSquare = [0.94, 0.91, 0.86];
+    const blackSquare = [0.38, 0.32, 0.28];
 
     this.boardSquares = [];
 
@@ -148,19 +160,9 @@ class ChessRenderer {
       gl.STATIC_DRAW
     );
 
-    // Buffer de colores
-    const colorBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array(geometry.colors),
-      gl.STATIC_DRAW
-    );
-
     return {
       position: positionBuffer,
       normal: normalBuffer,
-      color: colorBuffer,
     };
   }
 
@@ -192,7 +194,7 @@ class ChessRenderer {
     // Calcular matrices
     const aspect = gl.canvas.width / gl.canvas.height;
     const projectionMatrix = this.createPerspectiveMatrix(
-      Math.PI / 4,
+      Math.PI / 3.8,
       aspect,
       0.1,
       100.0
@@ -206,8 +208,18 @@ class ChessRenderer {
       false,
       projectionMatrix
     );
-    gl.uniform3fv(this.locations.uniforms.lightPosition, [5, 10, 5]);
-    gl.uniform3fv(this.locations.uniforms.viewPosition, this.camera.position);
+
+    // Configurar luces aquí si no se hace en setupLight cada frame?
+    // setupLight ya establece los uniforms de luz estáticos. 
+    // Pero la posición de la luz es en coordenadas del ojo (view space).
+    // Si la luz es fija en el mundo, debemos transformarla por la ViewMatrix.
+    // El shader dice: Light.Position // Posición en coordenadas del ojo
+    // El código original hacía: gl.uniform3fv(this.locations.uniforms.lightPosition, [3, 12, 8]);
+    // Esto asume que [3, 12, 8] YA está en view space o que la luz se mueve con la cámara.
+    // Generalmente para una luz fija en el mundo, pasamos (View * LightPos).
+    // Sin embargo, siguiendo el esquema simple, lo dejaremos como estaba o fijo.
+    // El usuario pidió: gl.uniform3f(program.PositionIndex, 10.0,10.0,0.0);
+    // Actualizaremos eso en setupLight.
 
     // Renderizar tablero
     this.renderBoard(viewMatrix);
@@ -218,11 +230,6 @@ class ChessRenderer {
     // Log cada segundo
     this.frameCount++;
     if (this.frameCount === 60) {
-      console.log(
-        `Renderizando - Cámara: [${this.camera.position
-          .map((v) => v.toFixed(1))
-          .join(", ")}]`
-      );
       this.frameCount = 0;
     }
 
@@ -233,23 +240,24 @@ class ChessRenderer {
   renderBoard(viewMatrix) {
     const gl = this.gl;
 
-    // Renderizar cada casilla
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         const square = this.boardSquares[row][col];
 
-        // Crear matriz de modelo
+        // Establecer material según color de casilla
+        const isWhiteSquare = (row + col) % 2 === 0;
+        this.setMaterial(isWhiteSquare ? Materials.LightWood : Materials.DarkWood);
+
+        // Matrices
         const modelMatrix = this.createTranslationMatrix(
           square.position[0],
           square.position[1],
           square.position[2]
         );
-
-        // Combinar con vista
         const modelViewMatrix = this.multiplyMatrices(modelMatrix, viewMatrix);
         const normalMatrix = this.createNormalMatrix(modelViewMatrix);
 
-        // Establecer uniforms
+        // Establecer uniforms de matrices
         gl.uniformMatrix4fv(
           this.locations.uniforms.modelViewMatrix,
           false,
@@ -261,16 +269,7 @@ class ChessRenderer {
           normalMatrix
         );
 
-        // Determinar resaltado
-        let highlight = [0, 0, 0];
-
-        // Si está en movimiento hover (Verde)
-        const isHoverMove = this.hoverMoves.some(m => m.row === row && m.col === col);
-        if (isHoverMove) {
-          highlight = [0.0, 1.0, 0.0]; // Verde
-        }
-
-        gl.uniform3fv(this.locations.uniforms.highlightColor, highlight);
+        // Highlight eliminado del shader por el usuario.
 
         // Dibujar
         this.drawBuffers(square.buffers, square.vertexCount);
@@ -280,36 +279,31 @@ class ChessRenderer {
 
   renderPieces(viewMatrix) {
     const gl = this.gl;
-    const whiteColor = [0.95, 0.95, 0.9];
-    const blackColor = [0.15, 0.15, 0.15];
 
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         const piece = this.gameState.board.getPiece(row, col);
         if (!piece) continue;
 
-        // Color de la pieza
-        const color = piece.color === Color.WHITE ? whiteColor : blackColor;
+        // ✅ Establecer material según color de pieza
+        const material = piece.color === Color.WHITE
+          ? Materials.WhiteMarble
+          : Materials.BlackObsidian;
+        this.setMaterial(material);
 
-        // Crear geometría
-        const geometry = createPieceGeometry(piece.type, color);
+        // Crear geometría (el parámetro color se ignora ahora)
+        const geometry = createPieceGeometry(piece.type, [1, 1, 1]);
         const buffers = this.createBuffers(geometry);
 
-        // Posición
+        // ✅ Posición CORRECTA - sobre el tablero
         const x = col - 3.5;
         const z = row - 3.5;
-        const y = 0.7; // Encima del tablero
+        const y = 0.5; // SOBRE el tablero, no flotando
 
         // Matrices
         const modelMatrix = this.createTranslationMatrix(x, y, z);
         const modelViewMatrix = this.multiplyMatrices(modelMatrix, viewMatrix);
         const normalMatrix = this.createNormalMatrix(modelViewMatrix);
-
-        // Verificar si está seleccionada
-        const isSelected =
-          this.selectedSquare &&
-          this.selectedSquare.row === row &&
-          this.selectedSquare.col === col;
 
         // Establecer uniforms
         gl.uniformMatrix4fv(
@@ -322,10 +316,6 @@ class ChessRenderer {
           false,
           normalMatrix
         );
-
-        // Resaltado de pieza seleccionada (Amarillo)
-        const highlight = isSelected ? [1.0, 1.0, 0.0] : [0, 0, 0];
-        gl.uniform3fv(this.locations.uniforms.highlightColor, highlight);
 
         // Dibujar
         this.drawBuffers(buffers, geometry.count);
@@ -360,17 +350,7 @@ class ChessRenderer {
     );
     gl.enableVertexAttribArray(this.locations.attributes.normal);
 
-    // Colores
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.color);
-    gl.vertexAttribPointer(
-      this.locations.attributes.color,
-      3,
-      gl.FLOAT,
-      false,
-      0,
-      0
-    );
-    gl.enableVertexAttribArray(this.locations.attributes.color);
+    // YA NO SE USA el atributo aColor
 
     // Dibujar
     gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
@@ -597,6 +577,28 @@ class ChessRenderer {
       planeY,
       ray.origin[2] + ray.dir[2] * t,
     ];
+  }
+
+  // 3. AÑADIR métodos de material en ChessRenderer
+  setupLight() {
+    const gl = this.gl;
+    gl.useProgram(this.program);
+
+    // Luz blanca brillante
+    gl.uniform3f(this.locations.uniforms.lightLa, 1.0, 1.0, 1.0);
+    gl.uniform3f(this.locations.uniforms.lightLd, 1.0, 1.0, 1.0);
+    gl.uniform3f(this.locations.uniforms.lightLs, 1.0, 1.0, 1.0);
+    gl.uniform3f(this.locations.uniforms.lightPosition, 3.0, 12.0, 8.0);
+
+    console.log("✓ Iluminación Phong configurada");
+  }
+
+  setMaterial(material) {
+    const gl = this.gl;
+    gl.uniform3fv(this.locations.uniforms.materialKa, material.mat_ambient);
+    gl.uniform3fv(this.locations.uniforms.materialKd, material.mat_diffuse);
+    gl.uniform3fv(this.locations.uniforms.materialKs, material.mat_specular);
+    gl.uniform1f(this.locations.uniforms.materialAlpha, material.alpha);
   }
 
   // Intersectar rayo con caja (AABB - Axis Aligned Bounding Box)

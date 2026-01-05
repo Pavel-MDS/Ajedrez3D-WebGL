@@ -39,15 +39,16 @@ function lookAt(eye, center, up) {
   ];
 }
 
-// Clase Camera
+// Clase Camera - MEJORADA
 class Camera {
   constructor() {
-    this.radius = 14;
-    this.theta = Math.PI / 4; // ángulo horizontal
-    this.phi = Math.PI / 3; // ángulo vertical (ajustado para mejor vista)
+    // Configuración mejorada para vista más cinematográfica
+    this.radius = 16; // Más lejos para mejor perspectiva
+    this.theta = Math.PI / 4; // ángulo horizontal (45°)
+    this.phi = Math.PI / 3.5; // ángulo vertical más bajo (~51°)
 
     this.minRadius = 8;
-    this.maxRadius = 25;
+    this.maxRadius = 30; // Permite alejarse más
 
     this.target = [0, 0, 0];
     this.position = [0, 0, 0];
@@ -60,6 +61,8 @@ class Camera {
 
     // Actualizar posición inicial
     this.update();
+    
+    console.log(`✓ Cámara inicializada en posición: [${this.position.map(v => v.toFixed(2)).join(', ')}]`);
   }
 
   attach(canvas) {
@@ -88,12 +91,12 @@ class Camera {
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
 
-      // Rotar cámara
-      this.theta -= dx * 0.005;
-      this.phi -= dy * 0.005;
+      // Rotar cámara (sensibilidad ajustada)
+      this.theta -= dx * 0.006;
+      this.phi -= dy * 0.006;
 
-      // Límites verticales para evitar gimbal lock
-      this.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, this.phi));
+      // Límites verticales mejorados para evitar gimbal lock
+      this.phi = Math.max(0.2, Math.min(Math.PI / 2 - 0.1, this.phi));
 
       this.lastX = e.clientX;
       this.lastY = e.clientY;
@@ -104,8 +107,8 @@ class Camera {
       (e) => {
         e.preventDefault();
 
-        // Zoom
-        this.radius += e.deltaY * 0.01;
+        // Zoom suavizado
+        this.radius += e.deltaY * 0.015;
         this.radius = Math.max(
           this.minRadius,
           Math.min(this.maxRadius, this.radius)
@@ -117,9 +120,7 @@ class Camera {
     // Cursor inicial
     canvas.style.cursor = "grab";
 
-    console.log(
-      "✓ Controles de cámara activados (arrastra para rotar, rueda para zoom)"
-    );
+    console.log("✓ Controles de cámara activados (arrastra para rotar, rueda para zoom)");
   }
 
   update() {
@@ -135,9 +136,10 @@ class Camera {
 
   // Método para resetear la cámara
   reset() {
-    this.radius = 14;
+    this.radius = 16;
     this.theta = Math.PI / 4;
-    this.phi = Math.PI / 3;
+    this.phi = Math.PI / 3.5;
     this.update();
+    console.log("✓ Cámara reseteada a posición inicial");
   }
 }
